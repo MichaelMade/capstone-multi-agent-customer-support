@@ -1,0 +1,23 @@
+# Secrets — never commit (retain only the documented example)
+.env
+.env.*
+!.env.example
+
+# Data (downloaded automatically on first run)
+data/
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
