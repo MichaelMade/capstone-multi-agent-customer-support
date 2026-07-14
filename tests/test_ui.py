@@ -57,6 +57,20 @@ class TestExtractReply:
         assert "wasn't able to generate" in ui._extract_reply({"messages": []})
 
 
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ("  hello  ", "hello"),
+        ({"text": "hello"}, "hello"),
+        ({"content": "hello"}, "hello"),
+        ([{"type": "text", "text": "hello"}], "hello"),
+        (None, ""),
+    ],
+)
+def test_text_from_chat_content_normalizes_gradio_shapes(content, expected):
+    assert ui._text_from_chat_content(content) == expected
+
+
 def test_add_user_message_trims_input_without_mutating_history():
     history = [{"role": "assistant", "content": "Welcome"}]
     textbox, updated = ui._add_user_message("  hello  ", history)
@@ -103,6 +117,27 @@ def test_actual_interrupt_resumes_with_command():
     payload, _ = graph.invoke_calls[0]
     assert isinstance(payload, Command)
     assert payload.resume == "5"
+
+
+def test_structured_gradio_user_content_is_sent_as_plain_text():
+    snapshot = SimpleNamespace(next=(), interrupts=())
+    graph = FakeGraph(snapshot, {"messages": [AIMessage(content="Done")]})
+    history = [{"role": "user", "content": {"text": "hello"}}]
+
+    list(ui._respond(graph, history, "thread-structured"))
+
+    payload, _ = graph.invoke_calls[0]
+    assert payload == {"user_input": "hello"}
+
+
+def test_empty_structured_user_content_does_not_invoke_graph():
+    graph = FakeGraph(SimpleNamespace(next=(), interrupts=()))
+    history = [{"role": "user", "content": {"text": "   "}}]
+
+    updates = list(ui._respond(graph, history, "thread-empty"))
+
+    assert graph.invoke_calls == []
+    assert "Please enter a text message" in updates[-1][0][-1]["content"]
 
 
 def test_new_interrupt_is_shown_as_waiting():

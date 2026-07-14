@@ -82,6 +82,21 @@ def _extract_reply(result: dict) -> str:
     return "I'm sorry — I wasn't able to generate a response. Please try again."
 
 
+def _text_from_chat_content(content: Any) -> str:
+    """Normalize text from Gradio's supported chat-message content shapes."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, dict):
+        for key in ("text", "content", "value"):
+            value = content.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    if isinstance(content, (list, tuple)):
+        parts = [_text_from_chat_content(item) for item in content]
+        return "".join(part for part in parts if part).strip()
+    return ""
+
+
 def _add_user_message(user_text: str, history: list) -> tuple[str, list]:
     history = history or []
     text = (user_text or "").strip()
@@ -118,7 +133,22 @@ def _respond(
         thread_id = str(uuid.uuid4())
         logger.info("New session thread: %s", thread_id)
     config = {"configurable": {"thread_id": thread_id}}
-    user_text = history[-1]["content"]
+    raw_user_content = history[-1].get("content")
+    user_text = _text_from_chat_content(raw_user_content)
+    logger.info(
+        "Processing user turn: content_type=%s text_length=%d",
+        type(raw_user_content).__name__,
+        len(user_text),
+    )
+    if not user_text:
+        history = history + [
+            {
+                "role": "assistant",
+                "content": "Please enter a text message and try again.",
+            }
+        ]
+        yield history, thread_id, _status("error", ": empty message")
+        return
 
     yield history, thread_id, _status("processing")
 
