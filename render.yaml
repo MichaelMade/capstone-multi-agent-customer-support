@@ -6,7 +6,6 @@ services:
     region: virginia
     autoDeployTrigger: checksPass
     healthCheckPath: /healthz
-    maxShutdownDelaySeconds: 60
     envVars:
       - key: OPENAI_API_KEY
         sync: false
