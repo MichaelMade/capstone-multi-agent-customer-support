@@ -235,7 +235,9 @@ def build_ui(graph) -> gr.Blocks:
                 max_length=MAX_USER_MESSAGE_LENGTH,
             )
             send = gr.Button("Send", variant="primary", scale=1)
-        reset = gr.Button("🔄 New Conversation")
+        with gr.Row():
+            reset = gr.Button("🔄 New Conversation")
+            gr.Button("⬇️ Install App", elem_id="install-app")
         thread_state = gr.State(None)
 
         send.click(_add_user_message, [msg, chatbot], [msg, chatbot]).then(

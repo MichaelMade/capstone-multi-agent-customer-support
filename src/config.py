@@ -81,6 +81,17 @@ def _parse_log_level() -> str:
     return value
 
 
+def _parse_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, str(default)).strip().casefold()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigurationError(
+        f"{name} must be true or false; got {os.getenv(name, '')!r}"
+    )
+
+
 def configure_logging(level: str) -> None:
     """Configure application logging after settings have been validated."""
     normalized = level.strip().upper()
@@ -107,10 +118,19 @@ class Settings:
     openai_api_base: str | None = field(
         default_factory=lambda: _optional_text("OPENAI_API_BASE")
     )
+    app_username: str | None = field(
+        default_factory=lambda: _optional_text("APP_USERNAME")
+    )
+    app_password: str | None = field(
+        default_factory=lambda: _optional_text("APP_PASSWORD"),
+        repr=False,
+    )
+    require_app_auth: bool = field(
+        default_factory=lambda: _parse_bool("REQUIRE_APP_AUTH")
+    )
     port: int = field(default_factory=_parse_port)
     # Bind to loopback by default; public binds (e.g. 0.0.0.0 inside
-    # Docker) must be an explicit opt-in via the HOST variable. The chat
-    # has no authentication layer, so never expose it publicly as-is.
+    # Docker) must be an explicit opt-in via the HOST variable.
     host: str = field(default_factory=lambda: _required_text("HOST", "127.0.0.1"))
     chinook_url: str = field(
         default_factory=lambda: _required_text("CHINOOK_SQL_URL", CHINOOK_SQL_URL)
@@ -126,6 +146,27 @@ class Settings:
         )
     )
     log_level: str = field(default_factory=_parse_log_level)
+
+    def __post_init__(self) -> None:
+        has_username = self.app_username is not None
+        has_password = self.app_password is not None
+        if has_username != has_password:
+            raise ConfigurationError(
+                "APP_USERNAME and APP_PASSWORD must be set together"
+            )
+        if self.app_password is not None and len(self.app_password) < 12:
+            raise ConfigurationError("APP_PASSWORD must be at least 12 characters")
+        if self.require_app_auth and not (has_username and has_password):
+            raise ConfigurationError(
+                "APP_USERNAME and APP_PASSWORD are required when REQUIRE_APP_AUTH=true"
+            )
+
+    @property
+    def app_auth(self) -> tuple[str, str] | None:
+        """Return optional Gradio credentials without exposing the password."""
+        if self.app_username is None or self.app_password is None:
+            return None
+        return self.app_username, self.app_password
 
 
 def get_settings() -> Settings:

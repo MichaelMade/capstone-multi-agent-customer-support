@@ -14,6 +14,9 @@ CONFIG_ENV_VARS = (
     "MODEL_NAME",
     "TEMPERATURE",
     "OPENAI_API_BASE",
+    "APP_USERNAME",
+    "APP_PASSWORD",
+    "REQUIRE_APP_AUTH",
     "PORT",
     "HOST",
     "CHINOOK_SQL_URL",
@@ -35,6 +38,7 @@ def test_default_settings_are_valid():
     assert settings.port == 7860
     assert settings.host == "127.0.0.1"
     assert settings.log_level == "INFO"
+    assert settings.app_auth is None
 
 
 @pytest.mark.parametrize("value", ["invalid", "nan", "inf", "0_1", "-0.1", "2.1"])
@@ -100,6 +104,57 @@ def test_required_text_settings_reject_blank_values(monkeypatch, name):
 def test_optional_api_base_is_trimmed(monkeypatch):
     monkeypatch.setenv("OPENAI_API_BASE", "  https://example.test/v1  ")
     assert config.get_settings().openai_api_base == "https://example.test/v1"
+
+
+@pytest.mark.parametrize("provided", ["APP_USERNAME", "APP_PASSWORD"])
+def test_app_auth_credentials_must_be_set_together(monkeypatch, provided):
+    monkeypatch.setenv(provided, "configured-value")
+
+    with pytest.raises(config.ConfigurationError, match="must be set together"):
+        config.get_settings()
+
+
+def test_app_auth_rejects_short_password(monkeypatch):
+    monkeypatch.setenv("APP_USERNAME", "reviewer")
+    monkeypatch.setenv("APP_PASSWORD", "too-short")
+
+    with pytest.raises(config.ConfigurationError, match="at least 12 characters"):
+        config.get_settings()
+
+
+def test_app_auth_is_trimmed_and_password_is_hidden(monkeypatch):
+    monkeypatch.setenv("APP_USERNAME", "  reviewer  ")
+    monkeypatch.setenv("APP_PASSWORD", "  strong-demo-password  ")
+
+    settings = config.get_settings()
+
+    assert settings.app_auth == ("reviewer", "strong-demo-password")
+    assert "strong-demo-password" not in repr(settings)
+
+
+def test_required_app_auth_fails_closed_without_credentials(monkeypatch):
+    monkeypatch.setenv("REQUIRE_APP_AUTH", "true")
+
+    with pytest.raises(config.ConfigurationError, match="are required"):
+        config.get_settings()
+
+
+def test_required_app_auth_accepts_complete_credentials(monkeypatch):
+    monkeypatch.setenv("REQUIRE_APP_AUTH", "true")
+    monkeypatch.setenv("APP_USERNAME", "reviewer")
+    monkeypatch.setenv("APP_PASSWORD", "strong-demo-password")
+
+    assert config.get_settings().app_auth == (
+        "reviewer",
+        "strong-demo-password",
+    )
+
+
+def test_required_app_auth_rejects_invalid_boolean(monkeypatch):
+    monkeypatch.setenv("REQUIRE_APP_AUTH", "sometimes")
+
+    with pytest.raises(config.ConfigurationError, match="must be true or false"):
+        config.get_settings()
 
 
 def test_configure_logging_uses_validated_level(monkeypatch):
@@ -189,3 +244,45 @@ def test_main_reports_agent_graph_initialization_failure(monkeypatch):
     assert exc_info.value.code == 1
     app.logger.exception.assert_called_once()
     build_ui.assert_not_called()
+
+
+def test_main_mounts_pwa_and_runs_uvicorn(monkeypatch):
+    settings = SimpleNamespace(
+        openai_api_key="test-key",
+        log_level="WARNING",
+        host="127.0.0.1",
+        port=7860,
+        app_auth=("reviewer", "strong-demo-password"),
+    )
+    graph = object()
+    demo = object()
+    web_app = object()
+    build_pwa_app = Mock(return_value=web_app)
+    run_server = Mock()
+
+    monkeypatch.setattr(app, "get_settings", Mock(return_value=settings))
+    monkeypatch.setattr(app, "configure_logging", Mock())
+    monkeypatch.setattr(app, "init_database", Mock())
+    monkeypatch.setattr(
+        app, "verify_database", Mock(return_value={"status": "healthy"})
+    )
+    monkeypatch.setattr(app, "build_graph", Mock(return_value=graph))
+    monkeypatch.setattr(app, "build_ui", Mock(return_value=demo))
+    monkeypatch.setattr(app, "build_pwa_app", build_pwa_app)
+    monkeypatch.setattr(app.uvicorn, "run", run_server)
+
+    app.main()
+
+    build_pwa_app.assert_called_once_with(
+        demo,
+        host="127.0.0.1",
+        port=7860,
+        auth=("reviewer", "strong-demo-password"),
+    )
+    run_server.assert_called_once_with(
+        web_app,
+        host="127.0.0.1",
+        port=7860,
+        log_level="warning",
+        log_config=None,
+    )

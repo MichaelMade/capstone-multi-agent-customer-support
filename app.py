@@ -8,9 +8,12 @@ compiles the multi-agent graph, and launches the Gradio chat UI.
 import logging
 import sys
 
+import uvicorn
+
 from src.config import ConfigurationError, configure_logging, get_settings
 from src.database import init_database, verify_database
 from src.graph import build_graph
+from src.pwa import build_pwa_app
 from src.ui import build_ui
 
 logger = logging.getLogger("app")
@@ -59,7 +62,19 @@ def main() -> None:
 
     demo = build_ui(graph)
     logger.info("Launching UI on %s:%s", settings.host, settings.port)
-    demo.launch(server_name=settings.host, server_port=settings.port)
+    web_app = build_pwa_app(
+        demo,
+        host=settings.host,
+        port=settings.port,
+        auth=settings.app_auth,
+    )
+    uvicorn.run(
+        web_app,
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+        log_config=None,
+    )
 
 
 if __name__ == "__main__":

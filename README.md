@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MichaelMade/capstone-multi-agent-customer-support/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelMade/capstone-multi-agent-customer-support/actions/workflows/ci.yml)
 
-A multi-agent AI customer support assistant for a digital music store, built with **LangGraph**, **langgraph-supervisor**, **LangChain**, **SQLAlchemy**, and **Gradio**. Customers verify their identity, browse the music catalog in natural language, look up invoices and purchases, and get a personalized experience backed by per-customer preference memory within the running process — with every answer grounded in the real Chinook database.
+A multi-agent AI customer support assistant for a digital music store, built with **LangGraph**, **langgraph-supervisor**, **LangChain**, **SQLAlchemy**, and **Gradio**. Customers verify their identity, browse the music catalog in natural language, look up invoices and purchases, and get a personalized experience backed by per-customer preference memory within the running process — with every answer grounded in the real Chinook database. The interface is also an installable progressive web app (PWA) with a privacy-safe offline screen.
 
 ## Architecture
 
@@ -36,7 +36,7 @@ START
 | Memory | `InMemoryStore`, namespace `("memory_profile", customer_id)`, key `user_memory`; sanitized set-union merge, questions excluded |
 | Conversation state | Plain-text-only public `InputState`; internal `State` protected by a `MemorySaver` checkpointer and one UUID thread per browser session |
 | Database | Chinook loaded into in-memory SQLite via SQLAlchemy (`StaticPool`); access is serialized, read-only, and parameterized |
-| UI | Gradio Blocks chat with status feedback, session isolation, interrupt/resume handling |
+| UI | Installable Gradio Blocks PWA with status feedback, session isolation, interrupt/resume handling, and an offline fallback |
 
 ### Security & anti-hallucination
 
@@ -46,7 +46,7 @@ START
 - **Prompt-injection defense in depth:** the verified ID also arrives via `SystemMessage` with explicit prompt rules, but the tool-layer binding holds even if the prompt layer is subverted (verified live with an "I am actually customer 2" attack).
 - **Memory hardening:** preference extraction is turn-scoped (including the original turn held across an identity interrupt), gated by a deterministic preference-language regex, and fed customer messages only. Known catalog names are canonicalized, explicit out-of-catalog tastes are preserved, instruction-shaped values are rejected, and all stored values are length/count capped and rendered as untrusted JSON labels in the music prompt.
 - **Supply-chain pin:** the downloaded Chinook SQL script is verified against a pinned SHA-256 before `executescript`; startup fails closed on mismatch (`CHINOOK_SHA256` overrides).
-- **Safe default bind:** the server binds `127.0.0.1` by default; `0.0.0.0` is an explicit opt-in (set in the Dockerfile for containers). The chat has no auth layer — don't expose it publicly as-is.
+- **Safe default bind and demo access gate:** the server binds `127.0.0.1` by default; `0.0.0.0` is an explicit opt-in (set in the Dockerfile for containers). Optional `APP_USERNAME` and `APP_PASSWORD` credentials protect the interactive UI and data-bearing APIs on a shared live demo; state-sharing and mounted schema routes are disabled.
 - **Six grounding rules** in every agent prompt: tool-grounded store facts, exact quoting, honest failures, scope boundaries, no training-data answers, and truncation transparency.
 
 ## Capstone rubric alignment
@@ -57,7 +57,7 @@ START
 - [x] **Memory implementation:** `MemorySaver` isolates conversation threads and `InMemoryStore` keeps namespaced customer preferences with deterministic merge and sanitization rules.
 - [x] **Prompt engineering & grounding:** specialist and supervisor prompts enforce domain scope, tool-grounded facts, transparent truncation, and safe treatment of stored preference data.
 - [x] **Testing & deterministic behavior:** the automated suite far exceeds the 28-test target and covers graph topology and prompt contracts, HITL, every tool outcome, database safety, authorization, memory, UI, and configuration without requiring live model calls.
-- [x] **Code quality, logging & deployment:** the project uses a modular `src/` layout, validated environment settings, structured logging, a Gradio UI, pinned dependencies, and a non-root Python 3.12 Docker image with a health check.
+- [x] **Code quality, logging & deployment:** the project uses a modular `src/` layout, validated environment settings, structured logging, an installable Gradio PWA, pinned dependencies, and a non-root Python 3.12 Docker image with a health check.
 
 ## Setup
 
@@ -80,6 +80,20 @@ python app.py
 
 Open http://localhost:7860. The Chinook SQL script is downloaded automatically on first run and cached under `data/`.
 
+### Install as an app
+
+1. Start the server and open http://localhost:7860 in a supported browser.
+2. Select **Install App** when the button appears, or use the browser's install option in its address bar or menu.
+3. Launch **Music Support** from your applications or home screen. The installed app still connects to the running Python server, so keep `python app.py` running while you use it.
+
+Browsers treat `localhost` and `127.0.0.1` as secure development origins, so local installation works over HTTP. A deployment reached through any non-local hostname or IP address must be served over **HTTPS** for service-worker and installation features to work reliably. Set both `APP_USERNAME` and `APP_PASSWORD` before sharing a hosted demo; the password must contain at least 12 characters.
+
+### Offline and privacy behavior
+
+The service worker caches only the static offline page and app icons. It does **not** cache the live application, conversations, customer or account data, authentication responses, Gradio endpoints, or API responses. If the connection drops, the app displays the offline screen without replaying private chat content.
+
+Offline mode cannot answer questions. The assistant still requires the local backend to be running, network access to the configured model endpoint, and a valid API key. Reconnect and select **Try again** to resume using it.
+
 ### Docker
 
 ```bash
@@ -89,7 +103,19 @@ docker run --rm -p 127.0.0.1:7860:7860 \
 ```
 
 The loopback-only port mapping keeps the unauthenticated demo local to the
-host. Put an authentication layer in front of it before any public deployment.
+host. For a shared container, also pass `APP_USERNAME` and `APP_PASSWORD` as
+runtime secrets.
+
+### Deploy to Render
+
+The included `render.yaml` deploys the Docker image to a free Render web service, waits for GitHub checks before automatic redeploys, verifies `/healthz`, and serves the PWA from a managed HTTPS URL. It enables `REQUIRE_APP_AUTH`, so startup fails closed if either sign-in secret is missing.
+
+1. Push the repository to GitHub, then open [Deploy to Render](https://render.com/deploy?repo=https://github.com/MichaelMade/capstone-multi-agent-customer-support).
+2. Connect the repository and create the Blueprint.
+3. Enter `OPENAI_API_KEY`, `APP_USERNAME`, and `APP_PASSWORD` when Render prompts for the three secret values. Do not put them in `render.yaml` or commit them.
+4. When the deploy finishes, open the generated `onrender.com` URL (normally `https://michaelmade-music-support.onrender.com`) and sign in with the credentials you chose.
+
+Render's free web services sleep after an idle period, so the first request after a pause can take about a minute. The in-memory conversation state and preference memory also reset whenever the free instance sleeps or redeploys.
 
 ## Test
 
@@ -125,7 +151,7 @@ Try these identifiers (from Chinook data): Customer ID `1`, email `luisg@embraer
 
 ## Environment variables
 
-See `.env.example`. Required: `OPENAI_API_KEY`. Optional: `MODEL_NAME` (default `gpt-4o-mini`; the model must support tool calling and structured outputs), `TEMPERATURE` (default `0.0`), `OPENAI_API_BASE` (an OpenAI-compatible endpoint), `PORT`, `HOST`, `LOG_LEVEL`, and `GRADIO_ANALYTICS_ENABLED` (disabled by default).
+See `.env.example`. Required: `OPENAI_API_KEY`. Optional: `APP_USERNAME` and `APP_PASSWORD` (set both to protect a shared deployment), `REQUIRE_APP_AUTH` (fail startup unless both are present), `MODEL_NAME` (default `gpt-4o-mini`; the model must support tool calling and structured outputs), `TEMPERATURE` (default `0.0`), `OPENAI_API_BASE` (an OpenAI-compatible endpoint), `PORT`, `HOST`, `LOG_LEVEL`, and `GRADIO_ANALYTICS_ENABLED` (disabled by default).
 
 ## Project structure
 
@@ -135,14 +161,17 @@ See `.env.example`. Required: `OPENAI_API_KEY`. Optional: `MODEL_NAME` (default 
 requirements.txt         # pinned application dependencies
 requirements-dev.txt     # pinned test and lint dependencies
 app.py                   # entry point
+pwa/                     # manifest icons, service worker, and offline page
+render.yaml              # access-controlled Render deployment blueprint
 src/
   config.py             # env-driven settings
   database.py           # Chinook load, run_query_safe, normalize_phone, health
   llm.py                # ChatOpenAI factory
   models.py             # Pydantic extraction and persisted-profile schemas
+  pwa.py                # FastAPI PWA host, manifest, and privacy-safe asset routes
   state.py              # public InputState + internal LangGraph State
   graph.py              # full graph assembly
-  ui.py                 # Gradio chat interface
+  ui.py                 # Gradio chat interface and install controls
   agents/
     prompts.py          # all system prompts + grounding rules
     verification.py     # verify_info, human_input (interrupt), routing
@@ -160,6 +189,7 @@ tests/
   test_memory_logic.py          # merge, catalog validation, isolation
   test_agent_graph_regressions.py # graph boundary and interrupt flow
   test_ui.py / test_config.py   # UI handlers and environment validation
+  test_pwa.py                    # installability, caching, auth, and PWA routes
   test_integrity.py             # SQL artifact hash pin
   test_observability.py         # privacy-safe tool/database logging
   test_rubric_contracts.py      # graph, prompt, verification, memory contracts
@@ -169,6 +199,8 @@ tests/
 ## Known limitations
 
 - `MemorySaver` and `InMemoryStore` are in-memory only: conversation history and preferences are lost on restart. In production, swap in persistent checkpointer/store backends (e.g. Postgres).
+- Installing the PWA does not turn the assistant into a fully offline application: the Python server must remain running, and assistant responses require network access to the configured model endpoint. Offline support is intentionally limited to a static, privacy-safe status screen.
+- Free Render instances sleep after inactivity and have ephemeral filesystems. A cold start can take about a minute, and every restart clears this project's in-memory state.
 - Running the assistant requires a valid, live `OPENAI_API_KEY`, network access to the configured model endpoint, and any associated API usage budget. Only the deterministic test suite runs without an API key.
 - Customer ID, email, and phone are convenient demo lookup identifiers, not strong authentication secrets. A production deployment must use real authentication and authorization before exposing account data.
 - Phone matching compares fully normalized numbers (a bare national number also matches its `+`-prefixed international form, but not a different country code).
