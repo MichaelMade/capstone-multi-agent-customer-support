@@ -4,6 +4,21 @@
 
 A multi-agent AI customer support assistant for a digital music store, built with **LangGraph**, **langgraph-supervisor**, **LangChain**, **SQLAlchemy**, and **Gradio**. Customers verify their identity, browse the music catalog in natural language, look up invoices and purchases, and get a personalized experience backed by per-customer preference memory within the running process — with every answer grounded in the real Chinook database. The interface is also an installable progressive web app (PWA) with a privacy-safe offline screen.
 
+**Tech stack:** Python 3.12, LangGraph, langgraph-supervisor, LangChain, SQLAlchemy, Gradio, and in-memory SQLite (Chinook).
+
+## How to run
+
+Requires Python 3.12 and an `OPENAI_API_KEY` in `.env`. From the project root:
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # then add your OPENAI_API_KEY
+python app.py
+```
+
+Open http://localhost:7860. More detail is in [Setup](#setup) and [Run](#run).
+
 ## Architecture
 
 ```
